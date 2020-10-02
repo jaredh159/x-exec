@@ -15,4 +15,8 @@ const output = exec.exit(`which cowsay`);
 
 // swallows stdout, and just returns a boolean for exit code
 const success = exec.success(`which cowsay`);
+
+// passes stdout/err thru to parent process stdout/err
+// returning boolean for exit code
+const success = exec.out(`which cowsay`);
 ```
