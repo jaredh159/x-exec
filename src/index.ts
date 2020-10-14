@@ -1,4 +1,4 @@
-import { execSync, spawnSync } from 'child_process';
+import { execSync, spawnSync, exec as coreExec } from 'child_process';
 
 export interface ErrData {
   exitCode: number;
@@ -7,7 +7,10 @@ export interface ErrData {
   stdOut: string;
 }
 
-export default function exec(cmd: string, cwd?: string): [null | ErrData, string] {
+/**
+ * Synchronously run a shell command, returning error and output
+ */
+function exec(cmd: string, cwd?: string): [null | ErrData, string] {
   try {
     return [null, execSync(cmd, { stdio: `pipe`, ...(cwd ? { cwd } : {}) }).toString()];
   } catch (err) {
@@ -29,21 +32,21 @@ export default function exec(cmd: string, cwd?: string): [null | ErrData, string
  * straight through to the current process's stdout/stderr.
  * Return a boolean representing the process exit code.
  */
-exec.out = function (cmd: string, cwd?: string): boolean {
+function out(cmd: string, cwd?: string): boolean {
   const parts = cmd.split(/ +/g);
   const { status } = spawnSync(parts.shift(), parts, {
     stdio: `inherit`,
     ...(cwd ? { cwd } : {}),
   });
   return status === 0;
-};
+}
 
 /**
  * Run a command, returning the stdout as a string.
  * If the command was unsuccessful (exit=1)
  * log the error and immediately exit 1
  */
-exec.exit = function (cmd: string, cwd?: string): string {
+function exit(cmd: string, cwd?: string): string {
   const [err, msg] = exec(cmd, cwd);
   if (!err) {
     return msg;
@@ -51,13 +54,66 @@ exec.exit = function (cmd: string, cwd?: string): string {
 
   console.error(`\x1b[31mEXEC CMD ERROR: \`${cmd}\`\n\n${err.message}\x1b[0m`);
   process.exit(1);
-};
+}
 
 /**
  * Run a command, swallowing all output, only returning
  * a single boolean representing the exit status of the command.
  */
-exec.success = function (cmd: string, cwd?: string): boolean {
+function success(cmd: string, cwd?: string): boolean {
   const [err] = exec(cmd, cwd);
   return !err;
-};
+}
+
+/**
+ * Async (promisified) version of exec
+ */
+function execAsync(cmd: string, cwd?: string): Promise<[null | ErrData, string]> {
+  return new Promise((resolve) => {
+    coreExec(cmd, { ...(cwd ? { cwd } : {}) }, (err, stdout, stderr) => {
+      if (err) {
+        resolve([
+          {
+            exitCode: err.code,
+            message: err.message,
+            stdErr: stderr.toString(),
+            stdOut: stdout.toString(),
+          },
+          err.message,
+        ]);
+        return;
+      }
+      resolve([null, stdout.toString()]);
+    });
+  });
+}
+
+/**
+ * Async (promisified) version of exec.exit
+ */
+async function execAsyncSuccess(cmd: string, cwd?: string): Promise<boolean> {
+  const [err] = await execAsync(cmd, cwd);
+  return !err;
+}
+
+/**
+ * Async (promisified) version of exec.exit
+ */
+async function execAsyncExit(cmd: string, cwd?: string): Promise<string> {
+  const [err, msg] = await execAsync(cmd, cwd);
+  if (!err) {
+    return msg;
+  }
+  console.error(`\x1b[31mEXEC (ASYNC) CMD ERROR: \`${cmd}\`\n\n${err.message}\x1b[0m`);
+  process.exit(1);
+}
+
+export default Object.assign(exec, {
+  out,
+  success,
+  exit,
+  async: Object.assign(execAsync, {
+    success: execAsyncSuccess,
+    exit: execAsyncExit,
+  }),
+});
